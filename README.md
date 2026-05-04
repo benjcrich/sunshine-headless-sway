@@ -219,12 +219,91 @@ The kcminputrc approach for KDE sidesteps both problems by living entirely in us
 - The **Sway config** disables all physical host devices and only enables Sunshine's passthrough devices, so your physical keyboard and mouse don't leak into the streaming session
 - Gamepads are read directly by Steam via evdev, bypassing the compositor entirely
 
+### Input isolation troubleshooting
+
+This project's input setup has three pieces that can each fail independently. Diagnose by checking each in order.
+
+#### 1. Sunshine virtual devices exist as kernel evdev nodes
+
+Sunshine creates virtual KB/mouse devices via `uinput` when it starts. Verify they exist:
+
+```bash
+for d in /sys/class/input/event*; do
+  v=$(cat $d/device/id/vendor 2>/dev/null)
+  [ "$v" = "beef" ] && echo "$d → $(cat $d/device/name)"
+done
+```
+
+You should see at least three `Mouse passthrough`, `Keyboard passthrough`, `Mouse passthrough (absolute)` entries (vendor `beef`, product `dead`). If nothing prints, Sunshine isn't running or `/dev/uinput` isn't accessible:
+
+- `systemctl --user is-active sunshine-headless.service`
+- `ls -la /dev/uinput` — should be group `input`, mode `0660`. If not, the `uinput` udev rule from Sunshine's package isn't installed.
+
+#### 2. Sway sees the devices via libinput
+
+```bash
+SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg -t get_inputs \
+  | grep -A1 passthrough
+```
+
+Each Sunshine device should appear with `"send_events": "enabled"`. If the kernel devices exist (step 1) but Sway doesn't see them, libinput can't enumerate them — check for udev tag stripping:
+
+```bash
+udevadm info --query=property --name=/dev/input/event<N> | grep ID_INPUT
+```
+
+A keyboard should have `ID_INPUT=1` and `ID_INPUT_KEYBOARD=1`. A mouse should have `ID_INPUT=1` and `ID_INPUT_MOUSE=1`. If those tags are missing, something is stripping them. The most common cause is a leftover legacy udev rule from a previous version of this project:
+
+```bash
+ls -la /etc/udev/rules.d/85-sunshine-input-isolation.rules
+```
+
+If present, remove it (the rule is broken on modern systemd — see [Why udev rules don't work anymore](#why-udev-rules-dont-work-anymore)):
+
+```bash
+sudo rm /etc/udev/rules.d/85-sunshine-input-isolation.rules
+sudo udevadm control --reload-rules
+systemctl --user restart sunshine-headless.service   # recreates devices with proper tags
+```
+
+Re-check `swaymsg -t get_inputs` — the passthrough devices should now appear.
+
+If they appear but show `"send_events": "disabled"`, then Sway *can* see them but Sway's input config is rejecting them. The shipped `sway-sunshine/config` explicitly enables them by name; if you've customized that file, double-check the `input "48879:57005:..."` entries are still present.
+
+#### 3. Host desktop is or isn't grabbing them
+
+Once Sway sees the devices, the question becomes whether your *host* desktop is also grabbing them (causing your host cursor to move during a Moonlight session).
+
+**On KDE Plasma:** install.sh writes per-device `Enabled=false` entries to `~/.config/kcminputrc`:
+
+```bash
+grep -A1 'passthrough\|Sunshine' ~/.config/kcminputrc
+```
+
+You should see five blocks (Keyboard / Mouse / Mouse abs / Touch / Pen passthrough), each with `Enabled=false`, plus one for the PS5 controller touchpad.
+
+**KDE doesn't re-evaluate these on a running session.** If you just installed and the host cursor still moves, you need *one* of:
+
+- Reboot
+- Log out and back in
+- Disconnect and reconnect Moonlight (recreates the Sunshine uinput devices, KWin re-reads kcminputrc on attach)
+- `systemctl --user restart sunshine-headless.service` (same effect as Moonlight reconnect)
+
+If the entries are missing entirely from `kcminputrc`, the install.sh either skipped them or you're not on KDE. Re-run `./install.sh` and watch its output for `Disabled [Libinput]...passthrough... in kcminputrc` lines.
+
+If you connect a PS5 controller and the host cursor moves with the touchpad, that's a different device (`Sunshine PS5 (virtual) pad Touchpad`) — install.sh adds it to kcminputrc, but it only takes effect after the controller is reconnected once.
+
+**On GNOME:** there is no working isolation today (see [GNOME input isolation limitation](#gnome-input-isolation-limitation)). Sunshine's virtual KB/mouse will appear as duplicate inputs while streaming. Workaround: run KDE Plasma on the host.
+
+**On any DE:** if neither Sway nor the host can see the devices, that's *not* an isolation issue — it's the libinput visibility problem in step 2. Always fix step 2 first.
+
 ### No input / can't control games
 
-- The `xdg-desktop-portal-wlr` package must be installed
-- Check that `/dev/uinput` is accessible to your user (Sunshine's udev rules should handle this)
-- Verify the libinput backend is active: `SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg -t get_inputs` should show Sunshine passthrough devices with `events: enabled`
-- If `swaymsg` shows no `48879:57005:*passthrough*` entries, check `/etc/udev/rules.d/` for any leftover `85-sunshine-input-isolation.rules` from an old install of this project — `install.sh` removes it automatically, but a stale copy will strip `ID_INPUT_*` and hide the devices from libinput. Delete it and run `sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=input`.
+If `swaymsg -t get_inputs` shows the Sunshine passthrough devices with `send_events: enabled`, but Moonlight inputs still don't reach the streaming session, check:
+
+- The `xdg-desktop-portal-wlr` package is installed
+- Sunshine is connected to the correct Wayland display (`WAYLAND_DISPLAY=wayland-1` typically — verify in `~/.config/systemd/user/sunshine-headless.service`)
+- Try `systemctl --user restart sunshine-headless.service` to re-establish the wlr-screencopy capture handshake
 
 ### Games don't launch
 

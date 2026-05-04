@@ -247,10 +247,14 @@ ensure_sunshine() {
     fi
 
     if (( year < MIN_SUNSHINE_YEAR )); then
-        log_warn "Sunshine version is older than v${MIN_SUNSHINE_YEAR}.x (detected year $year)."
-        log_warn "  v2026.x has the rewritten Wayland NVENC capture path."
-        log_warn "  Older versions throw GL_INVALID_OPERATION every frame on NVIDIA."
-        if (( IS_ARCH )); then
+        # The breaking failure (per-frame GL_INVALID_OPERATION → black screen)
+        # is specific to NVIDIA + Wayland capture in v2025.x. On non-NVIDIA hosts
+        # the old version often works fine (especially with software encoding),
+        # so we hard-error only when NVIDIA is detected and merely warn otherwise.
+        if (( HAS_NVIDIA )); then
+            log_warn "Sunshine v$year.x detected on an NVIDIA host."
+            log_warn "  Older versions throw GL_INVALID_OPERATION every frame on Wayland → black screen."
+            log_warn "  v2026.x rewrote the Wayland NVENC capture path. Upgrade is REQUIRED."
             local prompt
             if [[ -n "$AUR_HELPER" ]]; then
                 prompt="Build $SUNSHINE_AUR_PACKAGE from AUR via $AUR_HELPER now? [Y/n] "
@@ -261,17 +265,44 @@ ensure_sunshine() {
             local default_yes=0
             [[ -n "$AUR_HELPER" ]] && default_yes=1
             if (( default_yes )) && [[ -z "$ans" || "$ans" =~ ^[Yy]$ ]] || [[ "$ans" =~ ^[Yy]$ ]]; then
-                upgrade_sunshine_arch || exit 1
-                # Re-resolve in case path moved
+                if (( IS_ARCH )); then
+                    upgrade_sunshine_arch || exit 1
+                else
+                    log_err "Auto-upgrade is only implemented for Arch/CachyOS."
+                    log_err "On Debian/Ubuntu, install the v2026.x .deb from upstream releases first:"
+                    log_err "  https://github.com/LizardByte/Sunshine/releases"
+                    exit 1
+                fi
                 SUNSHINE_PATH="$(command -v sunshine)"
                 year=$(sunshine_year) || true
             else
-                log_err "Refusing to proceed with an outdated Sunshine."
+                log_err "Refusing to proceed with outdated Sunshine on NVIDIA — would produce a black screen."
                 exit 1
             fi
         else
-            log_err "On Debian/Ubuntu, install the v2026.x .deb from upstream releases first."
-            exit 1
+            log_warn "Sunshine v$year.x detected — v2026.x is recommended (Wayland capture fixes)."
+            log_warn "  On non-NVIDIA hosts the older version usually works for software-encode streaming"
+            log_warn "  but it's still the upstream-recommended floor for this project."
+            local prompt
+            if (( IS_ARCH )) && [[ -n "$AUR_HELPER" ]]; then
+                prompt="Upgrade to $SUNSHINE_AUR_PACKAGE via $AUR_HELPER now? [y/N] "
+            elif (( IS_ARCH )); then
+                prompt="Download & install upstream prebuilt now? [y/N] "
+            else
+                prompt=""
+            fi
+            if [[ -n "$prompt" ]]; then
+                read -rp "$prompt" ans
+                if [[ "$ans" =~ ^[Yy]$ ]]; then
+                    upgrade_sunshine_arch || log_warn "Upgrade failed; continuing with $year version."
+                    SUNSHINE_PATH="$(command -v sunshine)"
+                    year=$(sunshine_year) || true
+                fi
+            fi
+            if (( year < MIN_SUNSHINE_YEAR )); then
+                log_warn "Continuing with Sunshine v$year.x. If you hit any 'Frame capture failed' or"
+                log_warn "  'GL_INVALID_OPERATION' errors later, re-run install.sh and accept the upgrade."
+            fi
         fi
     fi
     log_ok "Sunshine version OK (year=$year)"
@@ -462,10 +493,31 @@ install_input_isolation() {
 
 cleanup_legacy_artifacts() {
     local f=/etc/udev/rules.d/85-sunshine-input-isolation.rules
-    if [[ -f "$f" ]]; then
-        log_info "Removing legacy broken udev rule at $f"
+    [[ -f "$f" ]] || return 0
+
+    if (( HAS_NVIDIA )); then
+        # On NVIDIA hosts the broken rule definitely breaks streaming, so just remove.
+        log_info "Removing legacy udev rule at $f"
+        log_info "  (broken on modern systemd-udevd; would prevent Sway from seeing Sunshine virtual inputs)"
         sudo rm -f "$f"
         sudo udevadm control --reload-rules
+        return 0
+    fi
+
+    # Non-NVIDIA host: ask before touching it. Some users on older systemd
+    # may still have a working setup — let them decide.
+    log_warn "Found legacy udev rule at $f"
+    log_warn "  This rule is BROKEN on modern systemd-udevd and is the most common cause"
+    log_warn "  of 'Sway has no Sunshine virtual KB/mouse' problems."
+    log_warn "  See README → Troubleshooting → Input isolation for how to verify."
+    read -rp "Remove it? [Y/n] " ans
+    if [[ -z "$ans" || "$ans" =~ ^[Yy]$ ]]; then
+        sudo rm -f "$f"
+        sudo udevadm control --reload-rules
+        log_ok "Removed."
+    else
+        log_warn "Left in place. If input isolation breaks, remove with:"
+        log_warn "  sudo rm $f && sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=input"
     fi
 }
 
