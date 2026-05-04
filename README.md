@@ -21,10 +21,10 @@ This setup runs a separate headless Wayland compositor (Sway) dedicated to game 
 - **OS**: Linux with systemd user services (tested on CachyOS/Arch and Ubuntu 25.10)
 - **GPU**: NVIDIA with proprietary drivers (for NVENC), or any GPU for software-encoded streaming
 - **Packages**: `sway`, `swaybg`, `pipewire`, `wireplumber`, `xdg-desktop-portal-wlr`
-- **Sunshine**: [LizardByte Sunshine](https://github.com/LizardByte/Sunshine/releases) **v2026.x** (any 2026-series release; the Wayland NVENC capture path was rewritten in this series). The installer will refuse to proceed against older Sunshine and offer to upgrade automatically on Arch/CachyOS.
+- **Sunshine**: [LizardByte Sunshine](https://github.com/LizardByte/Sunshine/releases) **v2026.x** (any 2026-series release; the Wayland NVENC capture path was rewritten in this series). The installer will refuse to proceed against older Sunshine and offer to upgrade automatically.
 - **Client**: [Moonlight](https://moonlight-stream.org/) on any device
 
-> **Note on CachyOS:** the CachyOS repo currently ships an older Sunshine snapshot (`2025.924.x`) which has a broken Wayland NVENC capture path on NVIDIA. The installer detects this and offers to install the upstream `pkg.tar.zst` from GitHub releases. After the upgrade, add `IgnorePkg = sunshine` to `/etc/pacman.conf` (under `[options]`) so a future `pacman -Syu` doesn't downgrade you back.
+> **Note on CachyOS:** the CachyOS repo currently ships an older Sunshine snapshot (`2025.924.x`) which has a broken Wayland NVENC capture path on NVIDIA. The installer detects this and offers to install [`sunshine-git`](https://aur.archlinux.org/packages/sunshine-git) from the AUR (preferred — tracks upstream master, builds with all features). If no AUR helper is present, it falls back to downloading the upstream prebuilt `pkg.tar.zst` from GitHub releases (in which case you'll want `IgnorePkg = sunshine` in `/etc/pacman.conf` under `[options]` to keep `pacman -Syu` from downgrading it).
 
 ## Quick install
 
@@ -37,7 +37,7 @@ cd sunshine-headless-sway
 The install script will:
 - Install missing dependencies (`sway`, `swaybg`, `xdg-desktop-portal-wlr`) via pacman or apt
 - Detect every GPU on the system via DRM sysfs and identify NVIDIA's render node
-- Verify Sunshine version is **v2026.x or newer** (and offer to upgrade on Arch/CachyOS if not)
+- Verify Sunshine version is **v2026.x or newer** (and offer to upgrade on Arch/CachyOS — `sunshine-git` from AUR if a helper like paru/yay is installed, otherwise the upstream prebuilt package)
 - Auto-detect your desktop environment for input isolation (KDE only — see [GNOME limitation](#gnome-input-isolation-limitation))
 - Auto-detect Sunshine installation path, Wayland display number, and user ID
 - Template all config files with your system's paths
@@ -164,7 +164,13 @@ This re-runs all the post-install probes (Sunshine version, services active, swa
 
 ### Sunshine downgraded after a system update (Arch/CachyOS)
 
-CachyOS ships an older Sunshine snapshot than upstream's latest. After upgrading via `install.sh`, add this to `/etc/pacman.conf` under `[options]` so `pacman -Syu` doesn't downgrade you:
+If you went the AUR `sunshine-git` route via `install.sh`, this shouldn't happen — the AUR package declares `provides=sunshine` and `conflicts=sunshine`, so pacman won't re-install the distro version on top of it. To rebuild against the latest upstream master at any time:
+
+```
+paru -S sunshine-git    # or your AUR helper of choice
+```
+
+If you went the **upstream prebuilt** route (no AUR helper present), pacman *will* try to replace it with the distro `sunshine` package on `pacman -Syu`. Pin it by adding to `/etc/pacman.conf` under `[options]`:
 
 ```
 IgnorePkg = sunshine

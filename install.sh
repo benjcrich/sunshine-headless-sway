@@ -22,12 +22,16 @@ SUNSHINE_PRODUCT_DEC=57005
 # v2026.x has the rewritten Wayland NVENC capture path.
 MIN_SUNSHINE_YEAR=2026
 
-# Pinned upstream Arch package for auto-upgrade on Arch/CachyOS.
+# AUR package preferred on Arch (tracks upstream master).
+SUNSHINE_AUR_PACKAGE="sunshine-git"
+
+# Fallback for hosts without an AUR helper: pinned upstream prebuilt.
 SUNSHINE_PKG_VERSION="2026.428.130031"
 SUNSHINE_PKG_URL="https://github.com/LizardByte/Sunshine/releases/download/v${SUNSHINE_PKG_VERSION}/sunshine-${SUNSHINE_PKG_VERSION}-1-x86_64.pkg.tar.zst"
 
 # ---------- Globals (set by detection functions) ----------
 IS_ARCH=0
+AUR_HELPER=""
 DETECTED_DE="unknown"
 HAS_NVIDIA=0
 HAS_AMD=0
@@ -36,6 +40,7 @@ NVIDIA_RENDER_NODE=""
 GPU_COUNT=0
 SUNSHINE_PATH=""
 SUNSHINE_UPGRADED=0
+SUNSHINE_USED_PREBUILT=0   # set to 1 only when fallback prebuilt was used
 USER_ID=$(id -u)
 SOCKET_PATH="/run/user/$USER_ID/sway-sunshine.sock"
 MAIN_WAYLAND=""
@@ -53,6 +58,7 @@ detect_distro() {
     if have pacman; then
         IS_ARCH=1
         log_ok "Arch-family distro detected (pacman)"
+        detect_aur_helper
     elif have apt; then
         IS_ARCH=0
         log_ok "Debian-family distro detected (apt)"
@@ -60,6 +66,19 @@ detect_distro() {
         log_err "No supported package manager (need pacman or apt)"
         exit 1
     fi
+}
+
+detect_aur_helper() {
+    local h
+    for h in paru yay pikaur trizen aurutils; do
+        if have "$h"; then
+            AUR_HELPER="$h"
+            log_ok "AUR helper found: $h"
+            return 0
+        fi
+    done
+    log_info "No AUR helper detected (paru/yay/pikaur). Will fall back to upstream pkg.tar.zst if Sunshine needs upgrading."
+    return 1
 }
 
 detect_desktop() {
@@ -168,6 +187,28 @@ sunshine_year() {
 }
 
 upgrade_sunshine_arch() {
+    if [[ -n "$AUR_HELPER" ]]; then
+        upgrade_sunshine_aur
+    else
+        log_warn "No AUR helper available — falling back to upstream prebuilt package."
+        upgrade_sunshine_prebuilt
+    fi
+}
+
+upgrade_sunshine_aur() {
+    log_info "Building $SUNSHINE_AUR_PACKAGE from AUR via $AUR_HELPER..."
+    log_info "  This may take 5-10 minutes (compiles from upstream master)."
+    log_info "  $AUR_HELPER will prompt you for sudo and may ask to replace the existing 'sunshine' package — that's expected."
+    if ! "$AUR_HELPER" -S "$SUNSHINE_AUR_PACKAGE"; then
+        log_err "AUR build failed. You can fall back to the upstream prebuilt with:"
+        log_err "    curl -fLO $SUNSHINE_PKG_URL && sudo pacman -U $(basename "$SUNSHINE_PKG_URL")"
+        return 1
+    fi
+    log_ok "Installed $SUNSHINE_AUR_PACKAGE"
+    SUNSHINE_UPGRADED=1
+}
+
+upgrade_sunshine_prebuilt() {
     local pkg=/tmp/sunshine-upstream.pkg.tar.zst
     log_info "Downloading $SUNSHINE_PKG_URL"
     if ! curl -fL --progress-bar -o "$pkg" "$SUNSHINE_PKG_URL"; then
@@ -178,6 +219,7 @@ upgrade_sunshine_arch() {
     sudo pacman -U --noconfirm "$pkg"
     log_ok "Upgraded Sunshine to v$SUNSHINE_PKG_VERSION"
     SUNSHINE_UPGRADED=1
+    SUNSHINE_USED_PREBUILT=1
     rm -f "$pkg"
 }
 
@@ -209,8 +251,16 @@ ensure_sunshine() {
         log_warn "  v2026.x has the rewritten Wayland NVENC capture path."
         log_warn "  Older versions throw GL_INVALID_OPERATION every frame on NVIDIA."
         if (( IS_ARCH )); then
-            read -rp "Download & install upstream sunshine $SUNSHINE_PKG_VERSION now? [y/N] " ans
-            if [[ "$ans" =~ ^[Yy]$ ]]; then
+            local prompt
+            if [[ -n "$AUR_HELPER" ]]; then
+                prompt="Build $SUNSHINE_AUR_PACKAGE from AUR via $AUR_HELPER now? [Y/n] "
+            else
+                prompt="Download & install upstream sunshine $SUNSHINE_PKG_VERSION now? [y/N] "
+            fi
+            read -rp "$prompt" ans
+            local default_yes=0
+            [[ -n "$AUR_HELPER" ]] && default_yes=1
+            if (( default_yes )) && [[ -z "$ans" || "$ans" =~ ^[Yy]$ ]] || [[ "$ans" =~ ^[Yy]$ ]]; then
                 upgrade_sunshine_arch || exit 1
                 # Re-resolve in case path moved
                 SUNSHINE_PATH="$(command -v sunshine)"
@@ -534,13 +584,18 @@ print_summary() {
     echo "Pair Moonlight at:  https://$(hostname):47990"
     echo
 
-    if (( IS_ARCH )) && (( SUNSHINE_UPGRADED )); then
-        log_warn "You upgraded Sunshine off the distro repo. To prevent a future"
-        log_warn "  'pacman -Syu' from downgrading you back to a broken version,"
+    if (( IS_ARCH )) && (( SUNSHINE_USED_PREBUILT )); then
+        log_warn "You installed the upstream prebuilt sunshine package. To prevent"
+        log_warn "  a future 'pacman -Syu' from replacing it with the distro version,"
         log_warn "  add this line to /etc/pacman.conf under [options]:"
         echo
         echo "      IgnorePkg = sunshine"
         echo
+    elif (( IS_ARCH )) && (( SUNSHINE_UPGRADED )); then
+        log_info "Installed $SUNSHINE_AUR_PACKAGE from AUR."
+        log_info "  No IgnorePkg pin needed — the AUR package's provides=sunshine"
+        log_info "  prevents the distro version from re-installing on 'pacman -Syu'."
+        log_info "  Rebuild against latest upstream master with:  $AUR_HELPER -S $SUNSHINE_AUR_PACKAGE"
     fi
 }
 
