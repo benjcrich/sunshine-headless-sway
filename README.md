@@ -19,14 +19,10 @@ This setup runs a separate headless Wayland compositor (Sway) dedicated to game 
 ## Requirements
 
 - **OS**: Linux with systemd user services (tested on CachyOS/Arch and Ubuntu 25.10)
-- **GPU**: NVIDIA with proprietary drivers (for NVENC), or any GPU for software-encoded streaming
+- **GPU**: NVIDIA with proprietary drivers (for NVENC)
 - **Packages**: `sway`, `swaybg`, `pipewire`, `wireplumber`, `xdg-desktop-portal-wlr`
-- **Sunshine**: [LizardByte Sunshine](https://github.com/LizardByte/Sunshine/releases) **v2026.x** (any 2026-series release; the Wayland NVENC capture path was rewritten in this series). The installer will refuse to proceed against older Sunshine and offer to upgrade automatically.
+- **Sunshine**: [LizardByte Sunshine](https://github.com/LizardByte/Sunshine/releases) **v2026.x** (the Wayland NVENC capture path was rewritten in this series). On Arch the installer can install [`sunshine-beta-bin`](https://aur.archlinux.org/packages/sunshine-beta-bin) for you.
 - **Client**: [Moonlight](https://moonlight-stream.org/) on any device
-
-> **Note on CachyOS:** the CachyOS repo currently ships an older Sunshine snapshot (`2025.924.x`) which has a broken Wayland NVENC capture path on NVIDIA. The installer detects this and offers to install [`sunshine-beta-bin`](https://aur.archlinux.org/packages/sunshine-beta-bin) from the AUR (preferred — binary repackage of upstream's pre-release CI build, NVENC support included). If no AUR helper is present, it falls back to downloading the upstream prebuilt `pkg.tar.zst` from GitHub releases (in which case you'll want `IgnorePkg = sunshine` in `/etc/pacman.conf` under `[options]` to keep `pacman -Syu` from downgrading it).
->
-> **Why not `sunshine-git`?** The source-build AUR package compiles without CUDA support because its PKGBUILD doesn't pull in the (3GB) `cuda` package as a build dependency. The resulting binary advertises `h264_nvenc` at startup (since the encoder symbol comes from the system's libavcodec) but every NVENC session fails with `Couldn't scale frame: Invalid argument` because Sunshine itself can't do the GPU buffer interop. `sunshine-beta-bin` ships the upstream LizardByte CI binary which has full CUDA bindings.
 
 ## Quick install
 
@@ -38,20 +34,12 @@ cd sunshine-headless-sway
 
 The install script will:
 - Install missing dependencies (`sway`, `swaybg`, `xdg-desktop-portal-wlr`) via pacman or apt
-- Detect every GPU on the system via DRM sysfs and identify NVIDIA's render node
-- Verify Sunshine version is **v2026.x or newer** (and offer to upgrade on Arch/CachyOS — `sunshine-beta-bin` from AUR if a helper like paru/yay is installed, otherwise the upstream prebuilt package)
-- Auto-detect your desktop environment for input isolation (KDE only — see [GNOME limitation](#gnome-input-isolation-limitation))
-- Auto-detect Sunshine installation path, Wayland display number, and user ID
+- Auto-detect your desktop environment (KDE supported; GNOME warns — see [Input isolation](#input-isolation))
+- Auto-detect your Sunshine installation path, GPUs, Wayland display number, and user ID
 - Template all config files with your system's paths
-- On NVIDIA hosts: install a systemd drop-in (`10-nvidia.conf`) with `WLR_RENDER_DRM_DEVICE` and `WLR_DRM_NO_MODIFIERS=1`; append `encoder = nvenc` and `adapter_name = /dev/dri/renderDXXX` to `sunshine.conf`
-- Preserve any existing Sunshine config you already have
-- Run a post-install verification pass
-
-You can re-run verification at any time without touching files:
-
-```bash
-./install.sh --check
-```
+- On NVIDIA: install a `10-nvidia.conf` systemd drop-in with the env vars wlroots needs to capture cleanly into NVENC, and append `encoder = nvenc` / `adapter_name` to `sunshine.conf`
+- Install and enable the systemd services, preserving any existing Sunshine config
+- Verify the install passed (also available as `./install.sh --check`)
 
 ## Manual setup
 
@@ -102,39 +90,7 @@ Restart Sunshine after editing: `systemctl --user restart sunshine-headless.serv
 
 ### NVIDIA + headless Sway renderer
 
-On NVIDIA hosts the installer drops a systemd override at `~/.config/systemd/user/sway-sunshine.service.d/10-nvidia.conf` containing two extra environment variables:
-
-```ini
-Environment=WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128   # detected NVIDIA render node
-Environment=WLR_DRM_NO_MODIFIERS=1
-```
-
-Both are necessary for streaming to work on NVIDIA:
-
-- **`WLR_RENDER_DRM_DEVICE`** pins wlroots to NVIDIA on multi-GPU systems. Without it, wlroots auto-picks a render device (often the AMD iGPU on Ryzen CPUs), which then forces a cross-vendor DMA-BUF copy into NVENC and breaks frame capture.
-- **`WLR_DRM_NO_MODIFIERS=1`** forces wlroots to allocate linear DMA-BUFs. NVIDIA EGL rejects most explicit DRM format modifiers and would otherwise return `EGL_BAD_MATCH` on every `eglCreateImageKHR` during `wlr-screencopy` capture — visible as `[wayland] Frame capture failed` in `sunshine.log`.
-
-Stick with `WLR_RENDERER=gles2` (the default). The Vulkan renderer has more modifier issues with NVIDIA headless and isn't worth the headache.
-
-### Multi-GPU game routing
-
-On hosts with both NVIDIA and another GPU (AMD iGPU on Ryzen, Intel iGPU, etc.), Steam's Vulkan enumeration will surface every available GPU and Steam picks the wrong one as the default — typically the iGPU, which then runs your games. To prevent this, `install.sh` adds a third line to the `10-nvidia.conf` drop-in when it detects more than one GPU:
-
-```ini
-Environment=VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.json
-```
-
-This restricts the Vulkan loader inside the sway-sunshine session to the NVIDIA ICD only — the iGPU becomes invisible to Vulkan apps so Steam can't pick it. Verify with:
-
-```bash
-SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg exec \
-  "vulkaninfo --summary > /tmp/vk.txt" && \
-  grep deviceName /tmp/vk.txt
-```
-
-Should show only NVIDIA. If it also shows AMD/Intel, the drop-in didn't apply.
-
-> **Important:** the variable lives in the systemd service environment, **not** in `start-steam-game.sh`. Anything `export`ed inside that script is silently ignored — `swaymsg exec` spawns under sway's process tree and the spawned child sees sway's env, not the script's. Setting `VK_DRIVER_FILES` in the service is the only place that actually reaches Steam.
+The Sway service uses `WLR_RENDERER=gles2` by default. On NVIDIA, the installer also writes a `10-nvidia.conf` drop-in that pins wlroots to the NVIDIA render node (`WLR_RENDER_DRM_DEVICE`) and forces linear DMA-BUFs (`WLR_DRM_NO_MODIFIERS=1`) since NVIDIA EGL rejects most explicit modifiers — without these, frame capture fails with `EGL_BAD_MATCH`. On multi-GPU hosts the drop-in also sets `VK_DRIVER_FILES` to the NVIDIA Vulkan ICD so Steam doesn't pick the iGPU.
 
 ### Audio isolation
 
@@ -165,177 +121,44 @@ Sway creates its IPC socket at the path specified by `SWAYSOCK` (`/run/user/<uid
 
 ## Troubleshooting
 
-### Re-run the verification step at any time
-
-```bash
-./install.sh --check
-```
-
-This re-runs all the post-install probes (Sunshine version, services active, sway sees virtual inputs, NVENC probed, no `EGL_BAD_MATCH` in journal) without touching any files.
+Re-run `./install.sh --check` at any time to verify the install (Sunshine version, services active, Sway sees virtual inputs, NVENC probed, no `EGL_BAD_MATCH` in the journal) without touching any files.
 
 ### Blank display / `Frame capture failed`
 
-- Check `~/.config/sunshine/sunshine.log` for `[wayland] Frame capture failed`. If present, also check the sway journal: `journalctl --user -u sway-sunshine.service | grep -i EGL_BAD_MATCH`. If you see the EGL error, your `10-nvidia.conf` drop-in is missing or `WLR_DRM_NO_MODIFIERS=1` isn't taking effect — re-run `./install.sh` to regenerate.
-- If the log shows repeated `Error: GL: ... [00000502]` (`GL_INVALID_OPERATION`) every frame, your Sunshine is too old. Required version is **v2026.x** — re-run `./install.sh` and accept the upgrade prompt, or install upstream's Arch package manually.
-- Ensure `WLR_RENDERER=gles2` is set in `sway-sunshine.service` (not `vulkan`)
-- Verify Sunshine is connecting to the correct Wayland display
-
-### Stream looks fine but you don't think NVENC is actually engaging
-
-This is sneaky: when NVENC initialization fails mid-pipeline, Sunshine *silently* falls through to vulkan → vaapi → libx264 software encoding, in that order. The Mac client gets a working stream from libx264 on your CPU and you may not notice anything wrong (modern CPUs encode 1080p60 fine).
-
-To verify NVENC is actually running mid-stream, run on the host:
-
-```bash
-nvidia-smi --query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps,encoder.stats.averageLatency --format=csv,noheader
-```
-
-A working NVENC session reports `1, 60, ~2000-5000` (count, fps, latency in microseconds). If you see `0, 0, 0` while a Moonlight session is connected, NVENC isn't engaged. Then check `sunshine.log` for the `Couldn't scale frame: Invalid argument` / `Encoder [nvenc] failed` / `Trying encoder [software]` chain.
-
-The most common cause for silent NVENC fallthrough on a v2026.x build is using `sunshine-git` (source build without CUDA) instead of `sunshine-beta-bin` (binary with CUDA). See the [requirements section](#requirements) for the package distinction.
-
-### Sunshine downgraded after a system update (Arch/CachyOS)
-
-If you went the AUR `sunshine-git` route via `install.sh`, this shouldn't happen — the AUR package declares `provides=sunshine` and `conflicts=sunshine`, so pacman won't re-install the distro version on top of it. To rebuild against the latest upstream master at any time:
-
-```
-paru -S sunshine-git    # or your AUR helper of choice
-```
-
-If you went the **upstream prebuilt** route (no AUR helper present), pacman *will* try to replace it with the distro `sunshine` package on `pacman -Syu`. Pin it by adding to `/etc/pacman.conf` under `[options]`:
-
-```
-IgnorePkg = sunshine
-```
+- `EGL_BAD_MATCH` in the sway journal means the NVIDIA drop-in didn't apply. Re-run `./install.sh`.
+- `GL: [00000502]` (`GL_INVALID_OPERATION`) every frame means your Sunshine is older than v2026.x. Re-run `./install.sh` and accept the upgrade prompt.
+- NVENC failures fall through to software encoding *silently* — the stream still works but on CPU. Check mid-stream with `nvidia-smi --query-gpu=encoder.stats.sessionCount --format=csv,noheader`. If `0`, grep `sunshine.log` for `Encoder [nvenc] failed`.
+- Ensure `WLR_RENDERER=gles2` is set (not `vulkan`).
 
 ### Input isolation
 
-Sunshine creates virtual input devices (vendor `0xBEEF`, product `0xDEAD`) that need to be hidden from your host desktop while remaining usable by the headless Sway session.
+Sunshine creates virtual input devices (vendor `0xBEEF`, product `0xDEAD`) that need to be hidden from your host desktop while remaining usable by the headless Sway session. Previous versions of this project shipped udev rules for GNOME and KDE; both broke on modern systemd/wlroots, so this fork uses a different approach.
 
-> **Heads up:** previous versions of this project shipped udev rules for GNOME and KDE. Both broke on modern systemd/wlroots and have been **removed** — see [Why udev rules don't work anymore](#why-udev-rules-dont-work-anymore) below.
+**KDE Plasma:** the installer writes per-device `Enabled=false` entries to `~/.config/kcminputrc` for each Sunshine virtual device. KWin honors these (suspending the device at the libinput level), and the headless Sway has its own libinput context that ignores the file, so devices stay usable inside the stream. KWin only re-evaluates these on device (re)attach — if isolation isn't working immediately, reboot, log out, or `systemctl --user restart sunshine-headless.service`.
 
-#### KDE Plasma (KWin) — supported
+**GNOME:** no working isolation today. The old `mutter-device-ignore` udev approach is rejected by modern `systemd-udevd` (env property names containing `-` fail with "Invalid argument" and abort the whole device). Sunshine's virtual KB/mouse will appear as duplicate inputs in the GNOME session while a Moonlight client is connected.
 
-The installer writes `Enabled=false` entries to `~/.config/kcminputrc` for each of Sunshine's well-known virtual devices:
+#### Troubleshooting
 
-```ini
-[Libinput][48879][57005][Mouse passthrough]
-Enabled=false
-
-[Libinput][48879][57005][Keyboard passthrough]
-Enabled=false
-# ... and so on for Mouse passthrough (absolute), Touch passthrough, Pen passthrough,
-# and Sunshine PS5 (virtual) pad Touchpad
-```
-
-KWin honors the `Enabled` key and suspends the device at the libinput level. The headless Sway has its own libinput context and ignores this file, so the devices stay visible inside the streaming session.
-
-The catch: KWin only re-evaluates `Enabled` for a device when it (re)attaches. If you edit `kcminputrc` while Sunshine is running, the change won't apply until you reboot, log out and back in, disconnect+reconnect Moonlight (which causes Sunshine to recreate its virtual devices), or restart `sunshine-headless.service`.
-
-#### GNOME input isolation limitation
-
-GNOME's `mutter-device-ignore` mechanism is rejected by modern `systemd-udevd` because the property name contains a hyphen — udev returns "Invalid argument" and aborts processing the entire device, which means the device gets *no* tags at all and libinput can't see it for *either* compositor. There's no clean alternative on GNOME today.
-
-The installer detects GNOME and warns; it does **not** install any udev rule. Sunshine's virtual KB/mouse will appear as duplicate input devices in your GNOME session while a Moonlight client is connected. If this matters, run KDE Plasma on the host for now, or track upstream GNOME for a fix.
-
-#### Why udev rules don't work anymore
-
-- **GNOME rule** (`mutter-device-ignore`): modern `systemd-udevd` rejects env var names containing hyphens. The rule fails with `Invalid argument` and udev *aborts processing the whole device*, so the standard `60-input-id.rules` never tags it and libinput skips it. Result: headless Sway can't see Sunshine's virtual KB/mouse.
-- **KDE rule** (strip `ID_INPUT*`): worked when KWin used a different input enumeration path. Today, KWin and headless Sway both use libinput's udev backend, which keys on those exact tags. Stripping them blinds *both* compositors equally.
-
-The kcminputrc approach for KDE sidesteps both problems by living entirely in user space — KWin reads it, libinput doesn't.
-
-#### How the rest of isolation works
-
-- The headless Sway uses `WLR_BACKENDS=headless,libinput` with `LIBSEAT_BACKEND=noop` and runs under the `input` group via `sg` to access input devices without a logind seat
-- The **Sway config** disables all physical host devices and only enables Sunshine's passthrough devices, so your physical keyboard and mouse don't leak into the streaming session
-- Gamepads are read directly by Steam via evdev, bypassing the compositor entirely
-
-### Input isolation troubleshooting
-
-This project's input setup has three pieces that can each fail independently. Diagnose by checking each in order.
-
-#### 1. Sunshine virtual devices exist as kernel evdev nodes
-
-Sunshine creates virtual KB/mouse devices via `uinput` when it starts. Verify they exist:
+If `SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg -t get_inputs` doesn't show the Sunshine passthrough devices with `send_events: enabled`, check for a leftover legacy rule:
 
 ```bash
-for d in /sys/class/input/event*; do
-  v=$(cat $d/device/id/vendor 2>/dev/null)
-  [ "$v" = "beef" ] && echo "$d → $(cat $d/device/name)"
-done
+ls /etc/udev/rules.d/85-sunshine-input-isolation.rules
 ```
 
-You should see at least three `Mouse passthrough`, `Keyboard passthrough`, `Mouse passthrough (absolute)` entries (vendor `beef`, product `dead`). If nothing prints, Sunshine isn't running or `/dev/uinput` isn't accessible:
-
-- `systemctl --user is-active sunshine-headless.service`
-- `ls -la /dev/uinput` — should be group `input`, mode `0660`. If not, the `uinput` udev rule from Sunshine's package isn't installed.
-
-#### 2. Sway sees the devices via libinput
-
-```bash
-SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg -t get_inputs \
-  | grep -A1 passthrough
-```
-
-Each Sunshine device should appear with `"send_events": "enabled"`. If the kernel devices exist (step 1) but Sway doesn't see them, libinput can't enumerate them — check for udev tag stripping:
-
-```bash
-udevadm info --query=property --name=/dev/input/event<N> | grep ID_INPUT
-```
-
-A keyboard should have `ID_INPUT=1` and `ID_INPUT_KEYBOARD=1`. A mouse should have `ID_INPUT=1` and `ID_INPUT_MOUSE=1`. If those tags are missing, something is stripping them. The most common cause is a leftover legacy udev rule from a previous version of this project:
-
-```bash
-ls -la /etc/udev/rules.d/85-sunshine-input-isolation.rules
-```
-
-If present, remove it (the rule is broken on modern systemd — see [Why udev rules don't work anymore](#why-udev-rules-dont-work-anymore)):
+If present, remove it — it strips `ID_INPUT_*` tags and hides the devices from libinput entirely:
 
 ```bash
 sudo rm /etc/udev/rules.d/85-sunshine-input-isolation.rules
 sudo udevadm control --reload-rules
-systemctl --user restart sunshine-headless.service   # recreates devices with proper tags
+systemctl --user restart sunshine-headless.service
 ```
 
-Re-check `swaymsg -t get_inputs` — the passthrough devices should now appear.
+Other things to check:
 
-If they appear but show `"send_events": "disabled"`, then Sway *can* see them but Sway's input config is rejecting them. The shipped `sway-sunshine/config` explicitly enables them by name; if you've customized that file, double-check the `input "48879:57005:..."` entries are still present.
-
-#### 3. Host desktop is or isn't grabbing them
-
-Once Sway sees the devices, the question becomes whether your *host* desktop is also grabbing them (causing your host cursor to move during a Moonlight session).
-
-**On KDE Plasma:** install.sh writes per-device `Enabled=false` entries to `~/.config/kcminputrc`:
-
-```bash
-grep -A1 'passthrough\|Sunshine' ~/.config/kcminputrc
-```
-
-You should see five blocks (Keyboard / Mouse / Mouse abs / Touch / Pen passthrough), each with `Enabled=false`, plus one for the PS5 controller touchpad.
-
-**KDE doesn't re-evaluate these on a running session.** If you just installed and the host cursor still moves, you need *one* of:
-
-- Reboot
-- Log out and back in
-- Disconnect and reconnect Moonlight (recreates the Sunshine uinput devices, KWin re-reads kcminputrc on attach)
-- `systemctl --user restart sunshine-headless.service` (same effect as Moonlight reconnect)
-
-If the entries are missing entirely from `kcminputrc`, the install.sh either skipped them or you're not on KDE. Re-run `./install.sh` and watch its output for `Disabled [Libinput]...passthrough... in kcminputrc` lines.
-
-If you connect a PS5 controller and the host cursor moves with the touchpad, that's a different device (`Sunshine PS5 (virtual) pad Touchpad`) — install.sh adds it to kcminputrc, but it only takes effect after the controller is reconnected once.
-
-**On GNOME:** there is no working isolation today (see [GNOME input isolation limitation](#gnome-input-isolation-limitation)). Sunshine's virtual KB/mouse will appear as duplicate inputs while streaming. Workaround: run KDE Plasma on the host.
-
-**On any DE:** if neither Sway nor the host can see the devices, that's *not* an isolation issue — it's the libinput visibility problem in step 2. Always fix step 2 first.
-
-### No input / can't control games
-
-If `swaymsg -t get_inputs` shows the Sunshine passthrough devices with `send_events: enabled`, but Moonlight inputs still don't reach the streaming session, check:
-
-- The `xdg-desktop-portal-wlr` package is installed
-- Sunshine is connected to the correct Wayland display (`WAYLAND_DISPLAY=wayland-1` typically — verify in `~/.config/systemd/user/sunshine-headless.service`)
-- Try `systemctl --user restart sunshine-headless.service` to re-establish the wlr-screencopy capture handshake
+- `xdg-desktop-portal-wlr` is installed
+- `/dev/uinput` is group `input`, mode `0660` (Sunshine's package udev rule should handle this)
+- Sunshine is connected to the right Wayland display (verify `WAYLAND_DISPLAY` in `sunshine-headless.service`)
 
 ### Games don't launch
 
@@ -427,20 +250,16 @@ Open Moonlight, find your host, and pair using the PIN at `https://YOUR_HOST:479
 │   ├── config                          # Headless Sway compositor config (input isolation)
 │   ├── set-resolution.sh               # Dynamic resolution on connect
 │   ├── reset-resolution.sh             # Reset resolution on disconnect
-│   ├── restore-default-sink.sh         # Prevents Sunshine from hijacking host audio
-│   ├── start-steam-game.sh             # Steam launcher (with multi-GPU Vulkan pinning)
-│   └── stop-steam-game.sh              # Cleanup helper
+│   └── restore-default-sink.sh         # Prevents Sunshine from hijacking host audio
 ├── sunshine/
-│   ├── sunshine.conf                   # Sunshine server config (encoder=nvenc on NVIDIA)
+│   ├── sunshine.conf                   # Sunshine server config
 │   └── apps.json                       # Game/app entries for Moonlight
 └── systemd/user/
     ├── sway-sunshine.service           # Headless Sway compositor service
     ├── sway-sunshine.service.d/
-    │   └── 10-nvidia.conf              # NVIDIA-only: WLR_RENDER_DRM_DEVICE + WLR_DRM_NO_MODIFIERS
+    │   └── 10-nvidia.conf              # NVIDIA-only drop-in (only created when NVIDIA detected)
     └── sunshine-headless.service       # Sunshine streaming service
 ```
-
-`install.sh` only writes the `10-nvidia.conf` drop-in when an NVIDIA render node is detected. On AMD-only or Intel-only hosts that file isn't created.
 
 ## License
 
