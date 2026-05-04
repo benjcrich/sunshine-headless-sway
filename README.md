@@ -116,7 +116,23 @@ Stick with `WLR_RENDERER=gles2` (the default). The Vulkan renderer has more modi
 
 ### Multi-GPU game routing
 
-On hosts with both NVIDIA and another GPU (AMD iGPU on Ryzen, Intel iGPU, etc.), Steam's Vulkan loader will pick the iGPU as the default GPU unless told otherwise. The shipped `start-steam-game.sh` exports `VK_DRIVER_FILES` to NVIDIA's ICD when present, restricting Vulkan enumeration to the NVIDIA card so Steam launches games on the discrete GPU. The check is a no-op on hosts without NVIDIA — same script works everywhere.
+On hosts with both NVIDIA and another GPU (AMD iGPU on Ryzen, Intel iGPU, etc.), Steam's Vulkan enumeration will surface every available GPU and Steam picks the wrong one as the default — typically the iGPU, which then runs your games. To prevent this, `install.sh` adds a third line to the `10-nvidia.conf` drop-in when it detects more than one GPU:
+
+```ini
+Environment=VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.json
+```
+
+This restricts the Vulkan loader inside the sway-sunshine session to the NVIDIA ICD only — the iGPU becomes invisible to Vulkan apps so Steam can't pick it. Verify with:
+
+```bash
+SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg exec \
+  "vulkaninfo --summary > /tmp/vk.txt" && \
+  grep deviceName /tmp/vk.txt
+```
+
+Should show only NVIDIA. If it also shows AMD/Intel, the drop-in didn't apply.
+
+> **Important:** the variable lives in the systemd service environment, **not** in `start-steam-game.sh`. Anything `export`ed inside that script is silently ignored — `swaymsg exec` spawns under sway's process tree and the spawned child sees sway's env, not the script's. Setting `VK_DRIVER_FILES` in the service is the only place that actually reaches Steam.
 
 ### Audio isolation
 
