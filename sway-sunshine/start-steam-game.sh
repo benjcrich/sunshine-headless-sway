@@ -7,6 +7,16 @@ APPID="$1"
 SWAYSOCK="/run/user/$(id -u)/sway-sunshine.sock"
 export SWAYSOCK
 
+# Multi-GPU: restrict Vulkan to NVIDIA so Steam doesn't pick the iGPU/AMD as default.
+# No-op on hosts without the NVIDIA Vulkan ICD (single-GPU AMD/Intel, etc.).
+for icd in /usr/share/vulkan/icd.d/nvidia_icd.json \
+           /usr/share/vulkan/icd.d/nvidia_icd.x86_64.json; do
+    if [ -r "$icd" ]; then
+        export VK_DRIVER_FILES="$icd"
+        break
+    fi
+done
+
 if [ -z "$APPID" ]; then
     echo "Usage: $0 <steam_appid|bigpicture|0>"
     exit 1
