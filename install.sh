@@ -22,8 +22,16 @@ SUNSHINE_PRODUCT_DEC=57005
 # v2026.x has the rewritten Wayland NVENC capture path.
 MIN_SUNSHINE_YEAR=2026
 
-# AUR package preferred on Arch (tracks upstream master).
-SUNSHINE_AUR_PACKAGE="sunshine-git"
+# AUR package preferred on Arch.
+# We use sunshine-beta-bin (the binary repackaging of upstream's pre-release)
+# rather than sunshine-git (source build) because the AUR -git PKGBUILD does
+# not pull in `cuda` as a build dependency — sunshine compiled without CUDA
+# bindings can detect h264_nvenc at startup (since libavcodec from the system
+# provides the encoder symbol) but every actual NVENC session fails with
+# "Couldn't scale frame: Invalid argument" because Sunshine can't do the GPU
+# buffer interop. sunshine-beta-bin is the binary the LizardByte CI builds
+# with full CUDA support, just packaged for Arch.
+SUNSHINE_AUR_PACKAGE="sunshine-beta-bin"
 
 # Fallback for hosts without an AUR helper: pinned upstream prebuilt.
 SUNSHINE_PKG_VERSION="2026.428.130031"
@@ -196,11 +204,11 @@ upgrade_sunshine_arch() {
 }
 
 upgrade_sunshine_aur() {
-    log_info "Building $SUNSHINE_AUR_PACKAGE from AUR via $AUR_HELPER..."
-    log_info "  This may take 5-10 minutes (compiles from upstream master)."
+    log_info "Installing $SUNSHINE_AUR_PACKAGE from AUR via $AUR_HELPER..."
+    log_info "  This is a binary repackage of upstream's pre-release build (no compilation)."
     log_info "  $AUR_HELPER will prompt you for sudo and may ask to replace the existing 'sunshine' package — that's expected."
     if ! "$AUR_HELPER" -S "$SUNSHINE_AUR_PACKAGE"; then
-        log_err "AUR build failed. You can fall back to the upstream prebuilt with:"
+        log_err "AUR install failed. You can fall back to the upstream prebuilt with:"
         log_err "    curl -fLO $SUNSHINE_PKG_URL && sudo pacman -U $(basename "$SUNSHINE_PKG_URL")"
         return 1
     fi
@@ -623,6 +631,28 @@ run_post_install_checks() {
         else
             log_warn "h264_nvenc not yet seen in sunshine.log (try connecting from Moonlight first)"
         fi
+
+        # Look for the SILENT FALLTHROUGH symptom — Sunshine claimed nvenc support
+        # at startup but every actual session failed and got swapped for software.
+        # This is what happens with sunshine-git (CUDA-less build) or with a missing
+        # WLR env var. Catches the case where streaming "works" on libx264 without
+        # the user realizing.
+        if grep -q "Couldn't find any working encoder matching \[nvenc\]" "$HOME/.config/sunshine/sunshine.log" 2>/dev/null; then
+            log_err "NVENC failed to actually start a session at least once (silent fallthrough to software)."
+            log_err "  Inspect: grep -E 'Couldn|Encoder \\[' ~/.config/sunshine/sunshine.log"
+            log_err "  Common causes:"
+            log_err "    - Using sunshine-git (built without CUDA) instead of sunshine-beta-bin"
+            log_err "    - Missing WLR_DRM_NO_MODIFIERS=1 in sway-sunshine.service env"
+            log_err "    - Wrong adapter_name in sunshine.conf"
+            fails=$((fails + 1))
+        fi
+
+        # Live NVENC session probe — only meaningful if a Moonlight client is currently connected
+        local nvenc_active
+        nvenc_active=$(nvidia-smi --query-gpu=encoder.stats.sessionCount --format=csv,noheader 2>/dev/null | head -1 | tr -d ' ')
+        if [[ "$nvenc_active" =~ ^[0-9]+$ ]] && (( nvenc_active > 0 )); then
+            log_ok "NVENC currently active ($nvenc_active session(s))"
+        fi
     fi
 
     # Check for the canonical NVIDIA failure mode in recent journal
@@ -673,9 +703,9 @@ print_summary() {
         echo
     elif (( IS_ARCH )) && (( SUNSHINE_UPGRADED )); then
         log_info "Installed $SUNSHINE_AUR_PACKAGE from AUR."
-        log_info "  No IgnorePkg pin needed — the AUR package's provides=sunshine"
-        log_info "  prevents the distro version from re-installing on 'pacman -Syu'."
-        log_info "  Rebuild against latest upstream master with:  $AUR_HELPER -S $SUNSHINE_AUR_PACKAGE"
+        log_info "  No IgnorePkg pin needed — sunshine-beta-bin's conflicts with the distro"
+        log_info "  'sunshine' package prevent it from re-installing on 'pacman -Syu'."
+        log_info "  Refresh to a newer upstream pre-release with:  $AUR_HELPER -S $SUNSHINE_AUR_PACKAGE"
     fi
 }
 

@@ -24,7 +24,9 @@ This setup runs a separate headless Wayland compositor (Sway) dedicated to game 
 - **Sunshine**: [LizardByte Sunshine](https://github.com/LizardByte/Sunshine/releases) **v2026.x** (any 2026-series release; the Wayland NVENC capture path was rewritten in this series). The installer will refuse to proceed against older Sunshine and offer to upgrade automatically.
 - **Client**: [Moonlight](https://moonlight-stream.org/) on any device
 
-> **Note on CachyOS:** the CachyOS repo currently ships an older Sunshine snapshot (`2025.924.x`) which has a broken Wayland NVENC capture path on NVIDIA. The installer detects this and offers to install [`sunshine-git`](https://aur.archlinux.org/packages/sunshine-git) from the AUR (preferred — tracks upstream master, builds with all features). If no AUR helper is present, it falls back to downloading the upstream prebuilt `pkg.tar.zst` from GitHub releases (in which case you'll want `IgnorePkg = sunshine` in `/etc/pacman.conf` under `[options]` to keep `pacman -Syu` from downgrading it).
+> **Note on CachyOS:** the CachyOS repo currently ships an older Sunshine snapshot (`2025.924.x`) which has a broken Wayland NVENC capture path on NVIDIA. The installer detects this and offers to install [`sunshine-beta-bin`](https://aur.archlinux.org/packages/sunshine-beta-bin) from the AUR (preferred — binary repackage of upstream's pre-release CI build, NVENC support included). If no AUR helper is present, it falls back to downloading the upstream prebuilt `pkg.tar.zst` from GitHub releases (in which case you'll want `IgnorePkg = sunshine` in `/etc/pacman.conf` under `[options]` to keep `pacman -Syu` from downgrading it).
+>
+> **Why not `sunshine-git`?** The source-build AUR package compiles without CUDA support because its PKGBUILD doesn't pull in the (3GB) `cuda` package as a build dependency. The resulting binary advertises `h264_nvenc` at startup (since the encoder symbol comes from the system's libavcodec) but every NVENC session fails with `Couldn't scale frame: Invalid argument` because Sunshine itself can't do the GPU buffer interop. `sunshine-beta-bin` ships the upstream LizardByte CI binary which has full CUDA bindings.
 
 ## Quick install
 
@@ -37,7 +39,7 @@ cd sunshine-headless-sway
 The install script will:
 - Install missing dependencies (`sway`, `swaybg`, `xdg-desktop-portal-wlr`) via pacman or apt
 - Detect every GPU on the system via DRM sysfs and identify NVIDIA's render node
-- Verify Sunshine version is **v2026.x or newer** (and offer to upgrade on Arch/CachyOS — `sunshine-git` from AUR if a helper like paru/yay is installed, otherwise the upstream prebuilt package)
+- Verify Sunshine version is **v2026.x or newer** (and offer to upgrade on Arch/CachyOS — `sunshine-beta-bin` from AUR if a helper like paru/yay is installed, otherwise the upstream prebuilt package)
 - Auto-detect your desktop environment for input isolation (KDE only — see [GNOME limitation](#gnome-input-isolation-limitation))
 - Auto-detect Sunshine installation path, Wayland display number, and user ID
 - Template all config files with your system's paths
@@ -177,6 +179,20 @@ This re-runs all the post-install probes (Sunshine version, services active, swa
 - If the log shows repeated `Error: GL: ... [00000502]` (`GL_INVALID_OPERATION`) every frame, your Sunshine is too old. Required version is **v2026.x** — re-run `./install.sh` and accept the upgrade prompt, or install upstream's Arch package manually.
 - Ensure `WLR_RENDERER=gles2` is set in `sway-sunshine.service` (not `vulkan`)
 - Verify Sunshine is connecting to the correct Wayland display
+
+### Stream looks fine but you don't think NVENC is actually engaging
+
+This is sneaky: when NVENC initialization fails mid-pipeline, Sunshine *silently* falls through to vulkan → vaapi → libx264 software encoding, in that order. The Mac client gets a working stream from libx264 on your CPU and you may not notice anything wrong (modern CPUs encode 1080p60 fine).
+
+To verify NVENC is actually running mid-stream, run on the host:
+
+```bash
+nvidia-smi --query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps,encoder.stats.averageLatency --format=csv,noheader
+```
+
+A working NVENC session reports `1, 60, ~2000-5000` (count, fps, latency in microseconds). If you see `0, 0, 0` while a Moonlight session is connected, NVENC isn't engaged. Then check `sunshine.log` for the `Couldn't scale frame: Invalid argument` / `Encoder [nvenc] failed` / `Trying encoder [software]` chain.
+
+The most common cause for silent NVENC fallthrough on a v2026.x build is using `sunshine-git` (source build without CUDA) instead of `sunshine-beta-bin` (binary with CUDA). See the [requirements section](#requirements) for the package distinction.
 
 ### Sunshine downgraded after a system update (Arch/CachyOS)
 
