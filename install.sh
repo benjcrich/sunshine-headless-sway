@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Headless Sway + Sunshine Game Streaming Setup
-# https://github.com/daaaaan/sunshine-headless-sway
+# Fork of https://github.com/daaaaan/sunshine-headless-sway with NVIDIA + multi-GPU
+# fixes; verified only on Arch/CachyOS + KDE Plasma + NVIDIA. See README for caveats.
 #
 # Re-run with --check to re-verify a previous install without making changes.
 

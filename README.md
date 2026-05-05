@@ -1,5 +1,7 @@
 # Headless Sway + Sunshine Game Streaming
 
+> **Fork notice:** this is a personal fork of [daaaaan/sunshine-headless-sway](https://github.com/daaaaan/sunshine-headless-sway) with changes targeted at multi-GPU NVIDIA hosts on modern systemd. I've only verified it on my own setup (Arch / CachyOS + KDE Plasma + NVIDIA RTX 5080) and don't have hardware to test other distros, desktops, or GPU vendors. It's published as-is and I'm not maintaining it as a general-purpose project — if your setup differs, the [upstream repo](https://github.com/daaaaan/sunshine-headless-sway) is likely a better starting point.
+
 > **DISCLAIMER**: This is provided as-is with absolutely no warranty or guarantee. Use at your own risk. This may break your system, eat your configs, set your GPU on fire, or summon an elder god. The author(s) take no responsibility for anything that happens as a result of using this software. You have been warned.
 
 ![Architecture Diagram](diagram.svg)
@@ -27,7 +29,7 @@ This setup runs a separate headless Wayland compositor (Sway) dedicated to game 
 ## Quick install
 
 ```bash
-git clone https://github.com/daaaaan/sunshine-headless-sway.git
+git clone https://github.com/benjcrich/sunshine-headless-sway.git
 cd sunshine-headless-sway
 ./install.sh
 ```
