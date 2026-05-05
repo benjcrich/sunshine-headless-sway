@@ -34,8 +34,8 @@ cd sunshine-headless-sway
 
 The install script will:
 - Install missing dependencies (`sway`, `swaybg`, `xdg-desktop-portal-wlr`) via pacman or apt
-- Auto-detect your desktop environment (KDE) for input isolation
-- Auto-detect your Sunshine installation path, GPUs, Wayland display number, and user ID
+- Auto-detect your desktop environment (GNOME or KDE) for input isolation
+- Auto-detect your Sunshine installation path, GPUs, and Wayland display number
 - Template all config files with your system's paths
 - On NVIDIA: install a `10-nvidia.conf` systemd drop-in and configure NVENC in `sunshine.conf`
 - Install and enable the systemd services, preserving any existing Sunshine config
