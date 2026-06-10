@@ -11,6 +11,23 @@ output * max_render_time off
 # Dark background
 exec swaybg -c '#1a1a2e'
 
+# No borders — avoids border flash in the stream before fullscreen rules apply
+default_border none
+default_floating_border none
+
+# Window rules: in sway, new windows map BEHIND an existing fullscreen
+# container (Steam Big Picture) and don't take focus. Force games to
+# steal fullscreen + focus when they launch. Proton games get the X11
+# class steam_app_<appid>; native Wayland builds use app_id.
+for_window [class="^steam_app_"] focus, fullscreen enable
+for_window [app_id="^steam_app_"] focus, fullscreen enable
+
+# Keep Big Picture itself fullscreen for a clean stream
+for_window [class="^steam$" title="^Steam Big Picture Mode$"] fullscreen enable
+
+# When a launched app requests activation, focus it instead of marking it urgent
+focus_on_window_activation focus
+
 # Input isolation: disable all physical devices, enable only Sunshine virtual inputs
 # Sunshine passthrough devices use vendor 48879 (0xBEEF), product 57005 (0xDEAD)
 input * events disabled
