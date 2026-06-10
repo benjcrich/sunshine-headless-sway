@@ -141,6 +141,18 @@ The installer writes per-device `Enabled=false` entries to `~/.config/kcminputrc
 - Test manually: `SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg -t get_tree`
 - If the socket is stale after a restart, the `ExecStartPre` cleanup in the service handles it
 
+### Game launches but Big Picture stays on screen
+
+In Sway, new windows map *behind* an existing fullscreen container (Big Picture) and don't take focus. The sway config handles this with `for_window` rules that make `steam_app_*` windows steal fullscreen and focus when they map — Proton games always get that class. Some native Linux games use their own binary name as the window class instead, slipping past the rule. To rescue a stuck session (e.g. over SSH, since the stream has no real keyboard):
+
+```bash
+export SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock
+swaymsg -t get_tree | grep -E '"app_id"|"class"'   # find the game's class/app_id
+swaymsg '[class="^YourGame"] focus, fullscreen enable'
+```
+
+For a game you run regularly, add a matching `for_window` rule to `~/.config/sway-sunshine/config` and reload with `swaymsg reload`.
+
 ### Audio bleeds to host
 
 - Verify `audio_sink = sink-sunshine-stereo` is in `~/.config/sunshine/sunshine.conf`
@@ -174,8 +186,7 @@ sudo apt install sway swaybg xdg-desktop-portal-wlr
 # Sway config and scripts
 mkdir -p ~/.config/sway-sunshine
 cp sway-sunshine/config ~/.config/sway-sunshine/
-cp sway-sunshine/set-resolution.sh ~/.config/sway-sunshine/
-cp sway-sunshine/reset-resolution.sh ~/.config/sway-sunshine/
+cp sway-sunshine/*.sh ~/.config/sway-sunshine/
 chmod +x ~/.config/sway-sunshine/*.sh
 
 # Sunshine config
@@ -198,9 +209,9 @@ cp systemd/sunshine-headless.service ~/.config/systemd/user/
 Update the following in the copied files to match your system:
 
 - `sunshine-headless.service`: set `ExecStart` to your Sunshine path, `WAYLAND_DISPLAY` to your headless display
-- `sway-sunshine.service`: update `/run/user/1000/` to `/run/user/$(id -u)/` if your UID isn't 1000
-- `apps.json`: update `/home/YOUR_USER/` to your home directory
-- `set-resolution.sh` / `reset-resolution.sh`: update the socket path if your UID isn't 1000
+- `apps.json`: update `/home/YOUR_USER/` to your home directory, and the `SWAYSOCK` path in `env` if your UID isn't 1000
+
+The systemd units use the `%t` specifier for the runtime dir and the scripts use `$(id -u)`, so neither needs UID edits.
 
 ### 4. Enable and start
 

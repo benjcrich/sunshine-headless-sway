@@ -1,56 +1,29 @@
 {
-  "env": {
-    "PATH": "$(PATH):$(HOME)/.local/bin",
-    "SWAYSOCK": "/run/user/1000/sway-sunshine.sock"
-  },
-  "apps": [
-    {
-      "name": "Desktop",
-      "image-path": "desktop.png",
-      "prep-cmd": [
+    "apps": [
         {
-          "do": "/home/YOUR_USER/.config/sway-sunshine/restore-default-sink.sh",
-          "undo": ""
-        },
-        {
-          "do": "/home/YOUR_USER/.config/sway-sunshine/set-resolution.sh",
-          "undo": "/home/YOUR_USER/.config/sway-sunshine/reset-resolution.sh"
+            "detached": [
+                "/home/YOUR_USER/.config/sway-sunshine/start-steam-game.sh bigpicture"
+            ],
+            "image-path": "steam.png",
+            "name": "Steam Big Picture",
+            "prep-cmd": [
+                {
+                    "do": "/home/YOUR_USER/.config/sway-sunshine/restore-default-sink.sh",
+                    "undo": ""
+                },
+                {
+                    "do": "/home/YOUR_USER/.config/sway-sunshine/set-resolution.sh",
+                    "undo": "/home/YOUR_USER/.config/sway-sunshine/reset-resolution.sh"
+                },
+                {
+                    "do": "",
+                    "undo": "/home/YOUR_USER/.config/sway-sunshine/stop-steam-game.sh"
+                }
+            ]
         }
-      ]
-    },
-    {
-      "name": "Steam Big Picture",
-      "detached": [
-        "/home/YOUR_USER/.config/sway-sunshine/start-steam-game.sh bigpicture"
-      ],
-      "prep-cmd": [
-        {
-          "do": "/home/YOUR_USER/.config/sway-sunshine/restore-default-sink.sh",
-          "undo": ""
-        },
-        {
-          "do": "/home/YOUR_USER/.config/sway-sunshine/set-resolution.sh",
-          "undo": "/home/YOUR_USER/.config/sway-sunshine/stop-steam-game.sh"
-        }
-      ],
-      "image-path": "steam.png"
-    },
-    {
-      "name": "Steam",
-      "detached": [
-        "/home/YOUR_USER/.config/sway-sunshine/start-steam-game.sh 0"
-      ],
-      "prep-cmd": [
-        {
-          "do": "/home/YOUR_USER/.config/sway-sunshine/restore-default-sink.sh",
-          "undo": ""
-        },
-        {
-          "do": "/home/YOUR_USER/.config/sway-sunshine/set-resolution.sh",
-          "undo": "/home/YOUR_USER/.config/sway-sunshine/stop-steam-game.sh"
-        }
-      ],
-      "image-path": "steam.png"
+    ],
+    "env": {
+        "PATH": "$(PATH):$(HOME)/.local/bin",
+        "SWAYSOCK": "/run/user/1000/sway-sunshine.sock"
     }
-  ]
 }

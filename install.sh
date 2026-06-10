@@ -173,7 +173,7 @@ detect_gpus() {
 }
 
 detect_wayland_displays() {
-    MAIN_WAYLAND=$(ls /run/user/$USER_ID/wayland-* 2>/dev/null | grep -v lock | sort | tail -1 | xargs -r basename || true)
+    MAIN_WAYLAND=$(ls /run/user/$USER_ID/wayland-* 2>/dev/null | grep -v lock | sort -V | tail -1 | xargs -r basename || true)
     if [[ -z "$MAIN_WAYLAND" ]]; then
         HEADLESS_DISPLAY="wayland-1"
         log_info "No active Wayland display detected; assuming headless display = wayland-1"
@@ -351,14 +351,13 @@ install_deps() {
 # ---------- File install ----------
 install_sway_configs() {
     mkdir -p "$SWAY_CONFIG_DIR"
-    cp "$SCRIPT_DIR/sway-sunshine/config" "$SWAY_CONFIG_DIR/config"
-    sed "s|/run/user/1000/|/run/user/$USER_ID/|g" \
-        "$SCRIPT_DIR/sway-sunshine/set-resolution.sh" > "$SWAY_CONFIG_DIR/set-resolution.sh"
-    sed "s|/run/user/1000/|/run/user/$USER_ID/|g" \
-        "$SCRIPT_DIR/sway-sunshine/reset-resolution.sh" > "$SWAY_CONFIG_DIR/reset-resolution.sh"
-    cp "$SCRIPT_DIR/sway-sunshine/restore-default-sink.sh" "$SWAY_CONFIG_DIR/restore-default-sink.sh"
+    # All scripts derive the socket path from $(id -u) at runtime — plain copies
+    cp "$SCRIPT_DIR/sway-sunshine/config"                   "$SWAY_CONFIG_DIR/config"
+    cp "$SCRIPT_DIR/sway-sunshine/set-resolution.sh"        "$SWAY_CONFIG_DIR/set-resolution.sh"
+    cp "$SCRIPT_DIR/sway-sunshine/reset-resolution.sh"      "$SWAY_CONFIG_DIR/reset-resolution.sh"
+    cp "$SCRIPT_DIR/sway-sunshine/restore-default-sink.sh"  "$SWAY_CONFIG_DIR/restore-default-sink.sh"
     cp "$SCRIPT_DIR/sway-sunshine/start-steam-game.sh"      "$SWAY_CONFIG_DIR/start-steam-game.sh"
-    cp "$SCRIPT_DIR/sway-sunshine/stop-steam-game.sh"       "$SWAY_CONFIG_DIR/stop-steam-game.sh" 2>/dev/null || true
+    cp "$SCRIPT_DIR/sway-sunshine/stop-steam-game.sh"       "$SWAY_CONFIG_DIR/stop-steam-game.sh"
     chmod +x "$SWAY_CONFIG_DIR"/*.sh
     log_ok "Sway configs installed in $SWAY_CONFIG_DIR"
 }
@@ -399,7 +398,8 @@ install_sunshine_conf() {
 
 install_apps_json() {
     if [[ ! -f "$SUNSHINE_CONFIG_DIR/apps.json" ]]; then
-        sed "s|/home/YOUR_USER/|$HOME/|g" \
+        sed -e "s|/home/YOUR_USER/|$HOME/|g" \
+            -e "s|/run/user/1000/|/run/user/$USER_ID/|g" \
             "$SCRIPT_DIR/sunshine/apps.json" > "$SUNSHINE_CONFIG_DIR/apps.json"
         log_ok "Created apps.json"
     else
@@ -409,11 +409,10 @@ install_apps_json() {
 
 install_systemd_units() {
     mkdir -p "$SYSTEMD_DIR"
-    sed -e "s|/run/user/1000/|/run/user/$USER_ID/|g" \
-        "$SCRIPT_DIR/systemd/sway-sunshine.service" > "$SYSTEMD_DIR/sway-sunshine.service"
+    # Units use %t for the runtime dir, so no UID templating needed
+    cp "$SCRIPT_DIR/systemd/sway-sunshine.service" "$SYSTEMD_DIR/sway-sunshine.service"
     sed -e "s|WAYLAND_DISPLAY=wayland-1|WAYLAND_DISPLAY=$HEADLESS_DISPLAY|g" \
-        -e "s|/run/user/1000/|/run/user/$USER_ID/|g" \
-        -e "s|ExecStart=.*|ExecStart=$SUNSHINE_PATH|g" \
+        -e "s|^ExecStart=.*|ExecStart=$SUNSHINE_PATH|g" \
         "$SCRIPT_DIR/systemd/sunshine-headless.service" > "$SYSTEMD_DIR/sunshine-headless.service"
     log_ok "Installed systemd unit files"
 }

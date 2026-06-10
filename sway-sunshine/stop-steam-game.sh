@@ -1,5 +1,5 @@
 #!/bin/bash
-# Shuts down Steam in the headless session and restarts it on the main desktop
+# Shuts down Steam in the headless session and cleans up its IPC files
 
 # Shut down Steam in the headless session
 steam -shutdown 2>/dev/null
