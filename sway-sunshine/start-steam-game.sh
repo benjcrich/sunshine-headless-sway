@@ -39,3 +39,20 @@ elif [ "$APPID" = "0" ]; then
 else
     swaymsg exec "steam -applaunch $APPID"
 fi
+
+# steamwebhelper keeps rendering at its pre-resize size (1280x800) when sway
+# fullscreens the window at map time, leaving the UI small in the top-left
+# corner of the stream. Once the Steam window appears, cycle it through
+# floating and back to force a resize event so CEF repaints at output size.
+(
+    for _ in $(seq 1 60); do
+        sleep 1
+        if swaymsg -t get_tree | grep -q '"class": "steam"'; then
+            sleep 2
+            swaymsg '[class="^steam$"] fullscreen disable, floating enable' > /dev/null
+            sleep 1
+            swaymsg '[class="^steam$"] floating disable, fullscreen enable' > /dev/null
+            break
+        fi
+    done
+) &

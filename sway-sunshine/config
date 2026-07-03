@@ -11,6 +11,26 @@ output * max_render_time off
 # Dark background
 exec swaybg -c '#1a1a2e'
 
+# No borders — avoids border flash in the stream before fullscreen rules apply
+default_border none
+default_floating_border none
+
+# This compositor exists only to be streamed, so every window should fill
+# the output — otherwise sway tiles Steam and the game side by side.
+# New windows also map BEHIND an existing fullscreen container without
+# taking focus, so steal focus on map too. [class] matches X11/XWayland
+# windows (Steam, Proton games), [app_id] matches native Wayland windows.
+for_window [class=".*"] focus, fullscreen enable
+for_window [app_id=".*"] focus, fullscreen enable
+
+# Clients can un-fullscreen themselves after mapping (games switching to
+# windowed mode), which drops everything back to tiling. The enforcer
+# watches window events and re-enables fullscreen on the focused window.
+exec ~/.config/sway-sunshine/fullscreen-enforcer.sh
+
+# When a launched app requests activation, focus it instead of marking it urgent
+focus_on_window_activation focus
+
 # Input isolation: disable all physical devices, enable only Sunshine virtual inputs
 # Sunshine passthrough devices use vendor 48879 (0xBEEF), product 57005 (0xDEAD)
 input * events disabled

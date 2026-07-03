@@ -56,7 +56,7 @@
 
   <!-- Game audio -->
   <rect x="50" y="390" width="260" height="32" fill="#1a3a2a" rx="6" stroke="#2a5a3a" stroke-width="1"/>
-  <text x="66" y="411" fill="#66cc88" font-size="12">Audio → sink-sunshine-stereo</text>
+  <text x="66" y="411" fill="#66cc88" font-size="12">Audio → sink-sunshine-headless</text>
 
   <!-- Game video -->
   <rect x="50" y="430" width="260" height="32" fill="#1a3a2a" rx="6" stroke="#2a5a3a" stroke-width="1"/>

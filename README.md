@@ -55,7 +55,7 @@ If you prefer to install manually, see the [manual setup guide](#manual-setup-gu
 ├─────────────────────────────────────────────────────┤
 │  Headless Sway                     wayland-1        │
 │  └─ Games launched via Sunshine                     │
-│  └─ Audio → sink-sunshine-stereo → Moonlight stream │
+│  └─ Audio → sink-sunshine-headless → Moonlight stream │
 │  └─ Video → wlr-screencopy → NVENC → Moonlight     │
 └─────────────────────────────────────────────────────┘
 ```
@@ -96,12 +96,22 @@ The Sway service uses `WLR_RENDERER=gles2` by default. Older wlroots versions ha
 
 Game audio is routed exclusively to the Moonlight stream without touching your host audio:
 
-- A persistent PipeWire null sink (`sink-sunshine-stereo`) is created via config drop-in — it always exists, even when Moonlight is disconnected or backgrounded
-- `PULSE_SINK=sink-sunshine-stereo` is set in the Sway service environment, so apps launched in the headless session output to this sink
-- `audio_sink = sink-sunshine-stereo` in `sunshine.conf` tells Sunshine to capture from that sink
+- A persistent PipeWire null sink (`sink-sunshine-headless`) is created via config drop-in — it always exists, even when Moonlight is disconnected or backgrounded
+- `PULSE_SINK=sink-sunshine-headless` is set in the Sway service environment, so PulseAudio-protocol apps launched in the headless session output to this sink
+- `PIPEWIRE_PROPS={ target.object = sink-sunshine-headless }` is also set there for PipeWire-native clients (Steam, SDL3 games), which ignore `PULSE_SINK` and would otherwise follow the system default sink to your host speakers
+- `audio_sink = sink-sunshine-headless` in `sunshine.conf` tells Sunshine which sink to make the default at stream start
+- A `pulse.rules` drop-in (`sunshine-capture-pin.conf`) pins Sunshine's capture stream to the sink. Sunshine actually captures *the monitor of the default sink* and follows default changes — without the pin, restoring the host default (next bullet) drags Sunshine's capture onto your host audio
 - `restore-default-sink.sh` runs as a prep command to prevent Sunshine from hijacking your host's default audio sink — it detects the change and restores it within seconds
+- The sink name is deliberately *not* `sink-sunshine-stereo` — Sunshine auto-creates its own virtual sinks with that name (`sink-sunshine-stereo`, `-surround51`, `-surround71`), and a name collision makes routing ambiguous
 - When Moonlight is backgrounded, game audio stays in the persistent null sink (silent) instead of reverting to your host speakers
 - Your main desktop audio continues through your normal output device
+
+### Steam window sizing
+
+The Sway config force-fullscreens every window (`for_window [class=".*"] focus, fullscreen enable`) since the compositor exists only to be streamed — otherwise Sway tiles Steam and the game side by side. Two quirks need extra handling:
+
+- When Sway fullscreens Steam's window at map time, steamwebhelper keeps rendering at its default 1280x800 and the UI sits small in the top-left corner of the stream. `start-steam-game.sh` works around this by cycling the Steam window through floating and back once it appears, forcing a repaint at the real output size.
+- `for_window` rules only fire when a window maps. Clients can un-fullscreen themselves afterward (games switching to windowed mode — emulators like Xenia do this at startup), dropping everything back to side-by-side tiling. `fullscreen-enforcer.sh`, started from the Sway config, subscribes to window events and re-enables fullscreen on the focused window whenever that happens.
 
 ### Dynamic resolution
 
@@ -186,11 +196,19 @@ sudo udevadm trigger --subsystem-match=input
 - Test manually: `SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg -t get_tree`
 - If the socket is stale after a restart, the `ExecStartPre` cleanup in the service handles it
 
+### No audio in the stream (or host audio in the stream)
+
+- While streaming, check what Sunshine is capturing: `pactl list source-outputs` — the `sunshine` entry's source must be the monitor of `sink-sunshine-headless`, not your host device. If it's on your host device's monitor, the capture pin rule isn't active: verify `~/.config/pipewire/pipewire-pulse.conf.d/50-sunshine-capture-pin.conf` exists and restart `pipewire-pulse.service`
+- WirePlumber may have memorized a bad route from before the pin existed. Clear it: stop the stream, then `systemctl --user stop wireplumber && sed -i '/sunshine/d' ~/.local/state/wireplumber/restore-stream && systemctl --user start wireplumber`
+- PipeWire-native clients (Steam, SDL3 games) ignore `PULSE_SINK` and follow the system default sink — which `restore-default-sink.sh` intentionally points back at your host device. Verify `Environment="PIPEWIRE_PROPS={ target.object = sink-sunshine-headless }"` is set in `sway-sunshine.service`
+- Test routing: `SWAYSOCK=/run/user/$(id -u)/sway-sunshine.sock swaymsg exec 'pw-play /usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga'`, then check `pw-dump` / `pactl list sink-inputs` — the stream should target `sink-sunshine-headless`
+- Don't rename the sink to `sink-sunshine-stereo`: Sunshine auto-creates its own sinks with that name and the collision breaks routing
+
 ### Audio bleeds to host
 
-- Verify `audio_sink = sink-sunshine-stereo` is in `~/.config/sunshine/sunshine.conf`
-- Check `PULSE_SINK=sink-sunshine-stereo` is in `sway-sunshine.service`
-- Verify the `restore-default-sink.sh` prep command is in `apps.json` — without it, Sunshine sets `sink-sunshine-stereo` as the system-wide default, routing all host audio into the stream
+- Verify `audio_sink = sink-sunshine-headless` is in `~/.config/sunshine/sunshine.conf`
+- Check `PULSE_SINK=sink-sunshine-headless` is in `sway-sunshine.service`
+- Verify the `restore-default-sink.sh` prep command is in `apps.json` — without it, Sunshine sets `sink-sunshine-headless` as the system-wide default, routing all host audio into the stream
 - Confirm your default sink after connecting: `wpctl status | grep '\*'`
 
 ### UPnP port mapping failures

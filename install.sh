@@ -139,9 +139,15 @@ sed "s|/run/user/1000/|/run/user/$USER_ID/|g" \
 sed "s|/run/user/1000/|/run/user/$USER_ID/|g" \
     "$SCRIPT_DIR/sway-sunshine/reset-resolution.sh" > "$SWAY_CONFIG_DIR/reset-resolution.sh"
 cp "$SCRIPT_DIR/sway-sunshine/restore-default-sink.sh" "$SWAY_CONFIG_DIR/restore-default-sink.sh"
+cp "$SCRIPT_DIR/sway-sunshine/start-steam-game.sh" "$SWAY_CONFIG_DIR/start-steam-game.sh"
+cp "$SCRIPT_DIR/sway-sunshine/stop-steam-game.sh" "$SWAY_CONFIG_DIR/stop-steam-game.sh"
+cp "$SCRIPT_DIR/sway-sunshine/fullscreen-enforcer.sh" "$SWAY_CONFIG_DIR/fullscreen-enforcer.sh"
 chmod +x "$SWAY_CONFIG_DIR/set-resolution.sh"
 chmod +x "$SWAY_CONFIG_DIR/reset-resolution.sh"
 chmod +x "$SWAY_CONFIG_DIR/restore-default-sink.sh"
+chmod +x "$SWAY_CONFIG_DIR/start-steam-game.sh"
+chmod +x "$SWAY_CONFIG_DIR/stop-steam-game.sh"
+chmod +x "$SWAY_CONFIG_DIR/fullscreen-enforcer.sh"
 
 # Sunshine config (only if not already configured)
 mkdir -p "$SUNSHINE_CONFIG_DIR"
@@ -154,7 +160,7 @@ elif ! grep -q "^audio_sink" "$SUNSHINE_CONFIG_DIR/sunshine.conf"; then
         sed -i 's/^sink = /audio_sink = /' "$SUNSHINE_CONFIG_DIR/sunshine.conf"
         echo "Migrated 'sink' to 'audio_sink' in existing sunshine.conf"
     else
-        echo "audio_sink = sink-sunshine-stereo" >> "$SUNSHINE_CONFIG_DIR/sunshine.conf"
+        echo "audio_sink = sink-sunshine-headless" >> "$SUNSHINE_CONFIG_DIR/sunshine.conf"
         echo "Added audio_sink to existing sunshine.conf"
     fi
     if ! grep -q "^capture" "$SUNSHINE_CONFIG_DIR/sunshine.conf"; then
@@ -191,6 +197,13 @@ mkdir -p "$PIPEWIRE_DIR"
 cp "$SCRIPT_DIR/pipewire/sunshine-null-sink.conf" "$PIPEWIRE_DIR/sunshine-null-sink.conf"
 echo "Installed PipeWire persistent audio sink"
 
+# pipewire-pulse rule: pin Sunshine's capture to the persistent sink so the
+# default-sink restore doesn't drag it onto host audio
+PIPEWIRE_PULSE_DIR="$HOME/.config/pipewire/pipewire-pulse.conf.d"
+mkdir -p "$PIPEWIRE_PULSE_DIR"
+cp "$SCRIPT_DIR/pipewire/sunshine-capture-pin.conf" "$PIPEWIRE_PULSE_DIR/50-sunshine-capture-pin.conf"
+echo "Installed Sunshine capture pin rule"
+
 # udev rule: install DE-appropriate input isolation rule
 UDEV_RULE="85-sunshine-input-isolation.rules"
 if [ "$DETECTED_DE" = "gnome" ]; then
@@ -208,6 +221,9 @@ echo "Installed systemd services"
 systemctl --user daemon-reload
 systemctl --user enable sway-sunshine.service
 systemctl --user enable sunshine-headless.service
+
+# Pick up the null sink and capture pin rule
+systemctl --user restart pipewire.service pipewire-pulse.service 2>/dev/null || true
 
 echo ""
 echo "=== Installation complete ==="
