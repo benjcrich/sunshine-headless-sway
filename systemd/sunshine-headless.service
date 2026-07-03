@@ -5,15 +5,16 @@ Requires=sway-sunshine.service
 
 [Service]
 Type=simple
-Environment=WAYLAND_DISPLAY=wayland-1
 Environment=SWAYSOCK=%t/sway-sunshine.sock
 Environment=XDG_SESSION_TYPE=wayland
 Environment=XDG_CURRENT_DESKTOP=sway
-ExecStartPre=/bin/sleep 2
+# Wait for sway to publish its actual display name — the wayland-N number
+# depends on what else is running, so it can't be baked in at install time.
+ExecStartPre=/bin/sh -c 'for _ in $(seq 1 15); do [ -s "$XDG_RUNTIME_DIR/sway-sunshine.display" ] && exit 0; sleep 1; done; echo "sway never published its wayland display" >&2; exit 1'
 # No sg wrapper needed: Sunshine creates virtual devices via /dev/uinput,
 # which its packaged udev rules grant access to. Only sway needs the input
 # group (to read devices through libinput).
-ExecStart=/usr/bin/sunshine
+ExecStart=/bin/sh -c 'export WAYLAND_DISPLAY="$(cat "$XDG_RUNTIME_DIR/sway-sunshine.display")"; exec "/usr/bin/sunshine"'
 Restart=on-failure
 RestartSec=5
 

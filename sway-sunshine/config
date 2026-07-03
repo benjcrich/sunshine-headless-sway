@@ -8,6 +8,11 @@ output HEADLESS-1 resolution 1920x1080@60Hz
 output * allow_tearing yes
 output * max_render_time off
 
+# Publish the actual Wayland display name — the number (wayland-0/1/2...)
+# depends on what else is running, so sunshine-headless.service reads it
+# from this file instead of an install-time guess.
+exec sh -c 'echo "$WAYLAND_DISPLAY" > "$XDG_RUNTIME_DIR/sway-sunshine.display"'
+
 # Dark background
 exec swaybg -c '#1a1a2e'
 

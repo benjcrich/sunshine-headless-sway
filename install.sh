@@ -52,7 +52,6 @@ SUNSHINE_UPGRADED=0
 SUNSHINE_USED_PREBUILT=0   # set to 1 only when fallback prebuilt was used
 USER_ID=$(id -u)
 SOCKET_PATH="/run/user/$USER_ID/sway-sunshine.sock"
-MAIN_WAYLAND=""
 HEADLESS_DISPLAY=""
 
 # ---------- Logging helpers ----------
@@ -173,16 +172,18 @@ detect_gpus() {
 }
 
 detect_wayland_displays() {
-    MAIN_WAYLAND=$(ls /run/user/$USER_ID/wayland-* 2>/dev/null | grep -v lock | sort -V | tail -1 | xargs -r basename || true)
-    if [[ -z "$MAIN_WAYLAND" ]]; then
-        HEADLESS_DISPLAY="wayland-1"
-        log_info "No active Wayland display detected; assuming headless display = wayland-1"
-    elif [[ "$MAIN_WAYLAND" == "wayland-0" ]]; then
-        HEADLESS_DISPLAY="wayland-1"
+    # Purely informational: the wayland-N number isn't baked in anywhere.
+    # Sway publishes its real display name to $XDG_RUNTIME_DIR/sway-sunshine.display
+    # at startup, and sunshine-headless.service reads it from there — guessing
+    # the number at install time breaks when a previous headless session is
+    # still holding a socket.
+    HEADLESS_DISPLAY=$(cat "/run/user/$USER_ID/sway-sunshine.display" 2>/dev/null || true)
+    if [[ -n "$HEADLESS_DISPLAY" ]]; then
+        log_ok "Headless sway currently on: $HEADLESS_DISPLAY"
     else
-        HEADLESS_DISPLAY="wayland-$((${MAIN_WAYLAND##wayland-} + 1))"
+        HEADLESS_DISPLAY="(published at service start)"
+        log_info "Headless display name is published when sway-sunshine.service starts"
     fi
-    log_ok "Main display: ${MAIN_WAYLAND:-none}, headless will be: $HEADLESS_DISPLAY"
 }
 
 # ---------- Sunshine handling ----------
@@ -412,8 +413,7 @@ install_systemd_units() {
     mkdir -p "$SYSTEMD_DIR"
     # Units use %t for the runtime dir, so no UID templating needed
     cp "$SCRIPT_DIR/systemd/sway-sunshine.service" "$SYSTEMD_DIR/sway-sunshine.service"
-    sed -e "s|WAYLAND_DISPLAY=wayland-1|WAYLAND_DISPLAY=$HEADLESS_DISPLAY|g" \
-        -e "s|^ExecStart=.*|ExecStart=$SUNSHINE_PATH|g" \
+    sed -e "s|\"/usr/bin/sunshine\"|\"$SUNSHINE_PATH\"|g" \
         "$SCRIPT_DIR/systemd/sunshine-headless.service" > "$SYSTEMD_DIR/sunshine-headless.service"
     log_ok "Installed systemd unit files"
 }

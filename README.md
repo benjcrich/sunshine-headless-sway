@@ -120,10 +120,10 @@ When a Moonlight client connects, Sunshine runs `set-resolution.sh` as a prep co
 
 ### Wayland display numbering
 
-The headless Sway session typically gets `wayland-1` (assuming your main desktop is `wayland-0`). The install script detects this automatically. To check manually:
+The headless Sway session's display number (`wayland-1`, `wayland-2`, ...) depends on what else is running, so it's never baked into config. At startup, Sway writes its actual display name to `$XDG_RUNTIME_DIR/sway-sunshine.display`, and `sunshine-headless.service` reads it from there. To check manually:
 
 ```bash
-ls /run/user/$(id -u)/wayland-*
+cat /run/user/$(id -u)/sway-sunshine.display
 ```
 
 ### IPC socket

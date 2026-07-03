@@ -16,7 +16,7 @@ Environment=PULSE_SINK=sink-sunshine-headless
 # (Steam, SDL3 games) follow the default sink — which restore-default-sink.sh
 # points back at the host — so pin their streams to the stream sink directly.
 Environment="PIPEWIRE_PROPS={ target.object = sink-sunshine-headless }"
-ExecStartPre=-/bin/rm -f %t/sway-sunshine.sock
+ExecStartPre=-/bin/rm -f %t/sway-sunshine.sock %t/sway-sunshine.display
 ExecStart=/usr/bin/sg input -c "/usr/bin/sway --config %h/.config/sway-sunshine/config"
 Restart=on-failure
 RestartSec=5
