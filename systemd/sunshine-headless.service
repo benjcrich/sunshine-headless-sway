@@ -6,11 +6,14 @@ Requires=sway-sunshine.service
 [Service]
 Type=simple
 Environment=WAYLAND_DISPLAY=wayland-1
-Environment=SWAYSOCK=/run/user/1000/sway-sunshine.sock
+Environment=SWAYSOCK=%t/sway-sunshine.sock
 Environment=XDG_SESSION_TYPE=wayland
 Environment=XDG_CURRENT_DESKTOP=sway
 ExecStartPre=/bin/sleep 2
-ExecStart=/usr/bin/sg input -c /usr/bin/sunshine
+# No sg wrapper needed: Sunshine creates virtual devices via /dev/uinput,
+# which its packaged udev rules grant access to. Only sway needs the input
+# group (to read devices through libinput).
+ExecStart=/usr/bin/sunshine
 Restart=on-failure
 RestartSec=5
 

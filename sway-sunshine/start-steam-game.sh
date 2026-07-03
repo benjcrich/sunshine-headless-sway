@@ -7,6 +7,13 @@ APPID="$1"
 SWAYSOCK="/run/user/$(id -u)/sway-sunshine.sock"
 export SWAYSOCK
 
+# Note: env vars exported here do NOT propagate through `swaymsg exec`.
+# That's because swaymsg sends an IPC message to sway, which spawns the
+# command under sway's process tree — children inherit sway's env, not
+# the env of whoever called swaymsg. Multi-GPU GPU selection
+# (VK_DRIVER_FILES) lives in the sway-sunshine.service Environment
+# (or the install.sh-generated NVIDIA drop-in) where it actually applies.
+
 if [ -z "$APPID" ]; then
     echo "Usage: $0 <steam_appid|bigpicture|0>"
     exit 1
