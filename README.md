@@ -42,6 +42,20 @@ The install script will:
 - On NVIDIA: install a `10-nvidia.conf` systemd drop-in and configure NVENC in `sunshine.conf`
 - Install and enable the systemd services, preserving any existing Sunshine config
 
+## Uninstall
+
+```bash
+./uninstall.sh
+```
+
+This stops and disables the user services, then removes the Sway config, systemd units, NVIDIA drop-in, PipeWire sink/capture-pin files, and KDE `kcminputrc` isolation entries. Sunshine's own config (`~/.config/sunshine`) and packages (`sway`, Sunshine, etc.) are left in place.
+
+Pass `-y` to skip the confirmation prompt. To also strip headless keys from `sunshine.conf` and move aside an `apps.json` that still points at `~/.config/sway-sunshine`:
+
+```bash
+./uninstall.sh --purge-sunshine-config
+```
+
 ## Manual setup
 
 If you prefer to install manually, see the [manual setup guide](#manual-setup-guide) below.
